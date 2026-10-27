@@ -1,14 +1,31 @@
 import sqlite3
+import uuid
 from datetime import date
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from streamlit_js_eval import streamlit_js_eval
 
-DB_NAME = "expenses.db"
 CATEGORIES = ["Food", "Travel", "Education", "Shopping", "Entertainment", "Bills", "Other"]
 DEFAULT_BUDGET = 3000.0
 
 st.set_page_config(page_title="SpendSmart", page_icon="💰", layout="wide")
+
+# Create a persistent, browser-specific ID. Each browser/device gets its own SQLite file.
+_candidate_device_id = str(uuid.uuid4())
+_device_id = streamlit_js_eval(
+    js_expressions=(
+        "(() => { let id = window.localStorage.getItem('spendsmart_device_id'); "
+        f"if (!id) {{ id = '{_candidate_device_id}'; window.localStorage.setItem('spendsmart_device_id', id); }} "
+        "return id; })()"
+    ),
+    key="spendsmart_device_id",
+)
+if not isinstance(_device_id, str) or not _device_id:
+    st.info("Preparing your private device storage. If this message remains, refresh the page.")
+    st.stop()
+
+DB_NAME = f"expenses_{_device_id.replace('-', '')[:16]}.db"
 
 
 def get_connection():
@@ -160,7 +177,7 @@ def money(value):
 
 initialize_database()
 st.title("SpendSmart")
-st.caption("Personal Expense Management System | Track spending, budgets, and monthly trends")
+st.caption("Personal Expense Management System | This browser has its own separate expense data.")
 
 with st.sidebar:
     st.header("Add an expense")
@@ -306,7 +323,7 @@ if report_expenses.empty:
     st.info("No expenses recorded for this month.")
 else:
     details = report_expenses.assign(
-        expense_date=report_expenses["expense_date"].dt.strftime("%Y-%m-%d")
+        expense_date=pd.to_datetime(report_expenses["expense_date"], errors="coerce").dt.strftime("%Y-%m-%d")
     ).drop(columns=["id"], errors="ignore").rename(columns={
         "amount": "Amount (₹)", "category": "Category",
         "description": "Description", "expense_date": "Date"
@@ -317,7 +334,7 @@ csv_report = (
     "MONTH SUMMARY\\n" + report_summary.to_csv(index=False)
     + "\\nCATEGORY BREAKDOWN\\n" + report_category.to_csv(index=False)
     + "\\nEXPENSE DETAILS\\n" + (
-        report_expenses.assign(expense_date=report_expenses["expense_date"].dt.strftime("%Y-%m-%d"))
+        report_expenses.assign(expense_date=pd.to_datetime(report_expenses["expense_date"], errors="coerce").dt.strftime("%Y-%m-%d"))
         .drop(columns=["id"], errors="ignore").rename(columns={
             "amount": "Amount (₹)", "category": "Category",
             "description": "Description", "expense_date": "Date"
